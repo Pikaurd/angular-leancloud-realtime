@@ -253,16 +253,16 @@ class Conversation extends EventEmitter {
 }
 
 class Message {
-  constructor(messageContent, mataData = {}) {
+  constructor(messageContent, metaData = {}) {
     {
       if (typeof content === 'string') {
         this.content = messageContent;
       }
-      if (mataData.fromPeerId) {
-        mataData.from = mataData.fromPeerId;
+      if (metaData.fromPeerId) {
+        metaData.from = metaData.fromPeerId;
       }
-      if (mataData.msgId) {
-        mataData.id = mataData.msgId;
+      if (metaData.msgId) {
+        metaData.id = metaData.msgId;
       }
       angular.extend(this, {
         id: undefined,
@@ -271,7 +271,7 @@ class Message {
         from: undefined,
         needReceipt: false,
         transient: false
-      }, mataData);
+      }, metaData);
     }
   }
   toString(data) {
@@ -288,10 +288,11 @@ class Message {
 }
 
 class TypedMessage extends Message {
-  constructor(content, mataData) {
-    super(null, mataData);
+  constructor(content, metaData) {
+    super(null, metaData);
     this.content = content;
     this.content.type = 0;
+    this.content.attr = metaData.data.attr;
   }
   toString(data) {
     return super.toString(angular.extend({
@@ -302,7 +303,10 @@ class TypedMessage extends Message {
   }
   static validate(content, metaData) {
     if (super.validate(content, metaData)) {
-      return typeof content._lctype === 'number' || typeof content.data.type === 'text';
+      return typeof content._lctype === 'number' ||
+        typeof content.data.type === 'text' ||
+        typeof content.data._lctype === 'number'
+        ;
     }
   }
   static parse(content, metaData) {
@@ -312,14 +316,15 @@ class TypedMessage extends Message {
     }, metaData);
   }
 }
+
 class TextMessage extends TypedMessage {
-  constructor(content, mataData) {
+  constructor(content, metaData) {
     if (typeof content === 'string') {
       content = {
         text: content
       };
     }
-    super(content, mataData);
+    super(content, metaData);
     this.content.type = -1;
   }
   toString(data) {
@@ -335,22 +340,27 @@ class TextMessage extends TypedMessage {
   static parse(content, metaData) {
     // 兼容现在的 sdk
     if (content.msg.type === 'text') {
-      return new TextMessage(content.msg, content);
+      console.log('content version');
+      return new TextMessage(content.data, content);
     }
-    return new TextMessage(content, metaData);
+    //console.log('metaData version');
+    //return new TextMessage(content, metaData);
+    console.error('text message error: ', content);
+    return null;
   }
 }
 
 // Image
 class ImageMessage extends TypedMessage {
-  constructor(content, mataData) {
+  constructor(content, metaData) {
     if (typeof content === 'object') {
       content = {
         text: content.url
       };
     }
-    super(content, mataData);
+    super(content, metaData);
     this.content.type = -2;
+    console.log('image: ', this.content);
   }
   toString(data) {
     return super.toString(data);
@@ -368,6 +378,37 @@ class ImageMessage extends TypedMessage {
       return new ImageMessage(content.msg, content);
     }
     return new ImageMessage(content, metaData);
+  }
+}
+
+// Banquet
+class BanquetMessage extends TypedMessage {
+  constructor(content, metaData) {
+    if (typeof content === 'object') {
+      content = {
+        text: 'Banquet',
+        attr: content.msg._lcattrs,
+      };
+
+    }
+    super(content.msg, metaData);
+    this.content.type = 1;
+    console.log('after parse content: ', this.content);
+  }
+  toString(data) {
+    return super.toString(data);
+  }
+  static validate(content, metaData) {
+    console.log('content: ', content.data, 'd: ', content);
+    if (super.validate(content, metaData)) {
+      return content.data._lctype === 1;
+    }
+    console.error("can not recognize message: ", content);
+    // 兼容现在的 sdk
+    return false;
+  }
+  static parse(content, metaData) {
+    return new BanquetMessage(content, metaData);
   }
 }
 
@@ -396,7 +437,7 @@ class MessageParser {
   }
 }
 MessageParser._messageClasses = [];
-[Message, TypedMessage, TextMessage, ImageMessage].forEach((Klass) => MessageParser.register(Klass));
+[ImageMessage, BanquetMessage, TextMessage, TypedMessage, Message].forEach((Klass) => MessageParser.register(Klass));
 
 angular.module('leancloud-realtime', [])
   .provider('LCRealtimeFactory', function() {
