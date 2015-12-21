@@ -254,25 +254,23 @@ class Conversation extends EventEmitter {
 
 class Message {
   constructor(messageContent, metaData = {}) {
-    {
-      if (typeof content === 'string') {
-        this.content = messageContent;
-      }
-      if (metaData.fromPeerId) {
-        metaData.from = metaData.fromPeerId;
-      }
-      if (metaData.msgId) {
-        metaData.id = metaData.msgId;
-      }
-      angular.extend(this, {
-        id: undefined,
-        cid: null,
-        timestamp: Date.now(),
-        from: undefined,
-        needReceipt: false,
-        transient: false
-      }, metaData);
+    if (typeof content === 'string') {
+      this.content = messageContent;
     }
+    if (metaData.fromPeerId) {
+      metaData.from = metaData.fromPeerId;
+    }
+    if (metaData.msgId) {
+      metaData.id = metaData.msgId;
+    }
+    angular.extend(this, {
+      id: undefined,
+      cid: null,
+      timestamp: Date.now(),
+      from: undefined,
+      needReceipt: false,
+      transient: false
+    }, metaData);
   }
   toString(data) {
     return JSON.stringify(data || this.content);
@@ -292,7 +290,28 @@ class TypedMessage extends Message {
     super(null, metaData);
     this.content = content;
     this.content.type = 0;
-    this.content.attr = metaData.data.attr;
+
+    console.log('content fo typedMessage constructor: ', content);
+
+    let attributes = null;
+    //if (metaData.msg !== undefined) {
+    //  attributes = metaData.msg.attr;
+    //}
+    //else
+    if (metaData.msg !== undefined) {
+      if (metaData.msg._lcattrs !== undefined) {
+        attributes = metaData.msg._lcattrs;
+      }
+      else {
+        attributes = metaData.msg.attr;
+      }
+    }
+    else {
+      attributes = metaData;
+    }
+    this.content.attr = attributes;
+
+    console.log('anchor');
   }
   toString(data) {
     return super.toString(angular.extend({
@@ -303,9 +322,16 @@ class TypedMessage extends Message {
   }
   static validate(content, metaData) {
     if (super.validate(content, metaData)) {
+      let attr = null;
+      if (content.data != undefined) {
+        attr = content.data;
+      }
+      else {
+        attr = content.msg;
+      }
       return typeof content._lctype === 'number' ||
-        typeof content.data.type === 'text' ||
-        typeof content.data._lctype === 'number'
+        typeof attr.type === 'text' ||
+        typeof attr._lctype === 'number'
         ;
     }
   }
@@ -340,11 +366,12 @@ class TextMessage extends TypedMessage {
   static parse(content, metaData) {
     // 兼容现在的 sdk
     if (content.msg.type === 'text') {
-      console.log('content version');
-      return new TextMessage(content.data, content);
+      //let data = content.data;
+      //if (data == undefine) {
+      //  data = content.msg;  // 接消息的时候就不是data, 而是msg了, 为啥我也不知道……
+      //}
+      return new TextMessage(content.msg, content);
     }
-    //console.log('metaData version');
-    //return new TextMessage(content, metaData);
     console.error('text message error: ', content);
     return null;
   }
@@ -353,14 +380,8 @@ class TextMessage extends TypedMessage {
 // Image
 class ImageMessage extends TypedMessage {
   constructor(content, metaData) {
-    if (typeof content === 'object') {
-      content = {
-        text: content.url
-      };
-    }
     super(content, metaData);
     this.content.type = -2;
-    console.log('image: ', this.content);
   }
   toString(data) {
     return super.toString(data);
@@ -370,7 +391,7 @@ class ImageMessage extends TypedMessage {
       return content._lctype === -2;
     }
     // 兼容现在的 sdk
-    return content.data.type === 'image';
+    return content.msg.type === 'image';
   }
   static parse(content, metaData) {
     // 兼容现在的 sdk
@@ -382,33 +403,23 @@ class ImageMessage extends TypedMessage {
 }
 
 // Banquet
-class BanquetMessage extends TypedMessage {
+class LinkMessage extends TypedMessage {
   constructor(content, metaData) {
-    if (typeof content === 'object') {
-      content = {
-        text: 'Banquet',
-        attr: content.msg._lcattrs,
-      };
-
-    }
-    super(content.msg, metaData);
+    super(content, metaData);
+    this.content.text = 'Link';
     this.content.type = 1;
-    console.log('after parse content: ', this.content);
   }
   toString(data) {
     return super.toString(data);
   }
   static validate(content, metaData) {
-    console.log('content: ', content.data, 'd: ', content);
     if (super.validate(content, metaData)) {
-      return content.data._lctype === 1;
+      return content.msg._lctype === 1;
     }
-    console.error("can not recognize message: ", content);
-    // 兼容现在的 sdk
     return false;
   }
   static parse(content, metaData) {
-    return new BanquetMessage(content, metaData);
+    return new LinkMessage(content.msg._lcattrs, content);
   }
 }
 
@@ -425,7 +436,9 @@ class MessageParser {
             return result;
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('MessageParser parse encounter error: ', e.stack, '\nClass: ', Klass);
+      }
     }
   }
   static register(messageClass) {
@@ -437,7 +450,7 @@ class MessageParser {
   }
 }
 MessageParser._messageClasses = [];
-[ImageMessage, BanquetMessage, TextMessage, TypedMessage, Message].forEach((Klass) => MessageParser.register(Klass));
+[Message, TypedMessage, TextMessage, ImageMessage, LinkMessage].forEach((Klass) => MessageParser.register(Klass));
 
 angular.module('leancloud-realtime', [])
   .provider('LCRealtimeFactory', function() {
@@ -462,4 +475,6 @@ angular.module('leancloud-realtime', [])
   })
   .value('LCMessage', Message)
   .value('LCTypedMessage', TypedMessage)
-  .value('LCTextMessage', TextMessage);
+  .value('LCTextMessage', TextMessage)
+  .value('LCImageMessage', ImageMessage)
+  .value('LCLinkMessage', LinkMessage);
